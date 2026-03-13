@@ -14,7 +14,8 @@ class FoundationStereoOnnx(FoundationStereo):
     def forward(self, left, right):
         """ Removes extra outputs and hyper-parameters """
         with torch.amp.autocast('cuda', enabled=True):
-            disp = FoundationStereo.forward(self, left, right, iters=self.args.valid_iters, test_mode=True)
+            out = FoundationStereo.forward(self, left, right, iters=self.args.valid_iters, test_mode=True)
+            disp = out[0] if isinstance(out, tuple) else out
         return disp
 
 

@@ -84,9 +84,10 @@ if __name__=="__main__":
 
   with torch.cuda.amp.autocast(True):
     if not args.hiera:
-      disp = model.forward(img0, img1, iters=args.valid_iters, test_mode=True)
+      out = model.forward(img0, img1, iters=args.valid_iters, test_mode=True)
     else:
-      disp = model.run_hierachical(img0, img1, iters=args.valid_iters, test_mode=True, small_ratio=0.5)
+      out = model.run_hierachical(img0, img1, iters=args.valid_iters, test_mode=True, small_ratio=0.5)
+  disp = out[0] if isinstance(out, tuple) else out
   disp = padder.unpad(disp.float())
   disp = disp.data.cpu().numpy().reshape(H,W)
   vis = vis_disparity(disp)

@@ -245,21 +245,23 @@ class CuSFMDataInference:
             img1_tensor = img1_tensor.contiguous()
 
             with torch.cuda.amp.autocast(True):
-                disp = self.model.forward(
+                out = self.model.forward(
                     img0_tensor,
                     img1_tensor,
                     iters=self.args.valid_iters,
                     test_mode=True)
+                disp = out[0] if isinstance(out, tuple) else out
                 disp = padder.unpad(disp.float())
 
                 if getattr(self.args, "also_generate_for_right_camera", False):
                     img0_flipped_tensor = torch.flip(img0_tensor, dims=[3])
                     img1_flipped_tensor = torch.flip(img1_tensor, dims=[3])
-                    disp2 = self.model.forward(
+                    out2 = self.model.forward(
                         img1_flipped_tensor,
                         img0_flipped_tensor,
                         iters=self.args.valid_iters,
                         test_mode=True)
+                    disp2 = out2[0] if isinstance(out2, tuple) else out2
                     disp2 = torch.flip(disp2, dims=[3])
                     disp2 = padder.unpad(disp2.float())
 

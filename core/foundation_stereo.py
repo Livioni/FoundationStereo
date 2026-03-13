@@ -221,7 +221,9 @@ class FoundationStereo(nn.Module, huggingface_hub.PyTorchModelHubMixin):
             comb_volume = self.cost_agg(comb_volume, features_left)
 
             # Init disp from geometry encoding volume
-            prob = F.softmax(self.classifier(comb_volume).squeeze(1), dim=1)  #(B, max_disp, H, W)
+            logits = self.classifier(comb_volume).squeeze(1)
+            prob = F.softmax(logits, dim=1)  #(B, max_disp, H, W)
+            conf_1_4 = prob.max(dim=1, keepdim=True).values  # (B, 1, H, W)
             if init_disp is None:
               init_disp = disparity_regression(prob, self.args.max_disp//4)  # Weighted  sum of disparity
 
@@ -255,7 +257,8 @@ class FoundationStereo(nn.Module, huggingface_hub.PyTorchModelHubMixin):
 
 
         if test_mode:
-            return disp_up
+            conf_up = F.interpolate(conf_1_4, size=disp_up.shape[-2:], mode='bilinear', align_corners=False)
+            return disp_up, conf_up
 
         return init_disp, disp_preds
 
@@ -266,7 +269,8 @@ class FoundationStereo(nn.Module, huggingface_hub.PyTorchModelHubMixin):
       img2_small = F.interpolate(image2, scale_factor=small_ratio, align_corners=False, mode='bilinear')
       padder = InputPadder(img1_small.shape[-2:], divis_by=32, force_square=False)
       img1_small, img2_small = padder.pad(img1_small, img2_small)
-      disp_small = self.forward(img1_small, img2_small, test_mode=True, iters=iters, low_memory=low_memory)
+      out_small = self.forward(img1_small, img2_small, test_mode=True, iters=iters, low_memory=low_memory)
+      disp_small = out_small[0] if isinstance(out_small, tuple) else out_small
       disp_small = padder.unpad(disp_small.float())
       disp_small_up = F.interpolate(disp_small, size=(H,W), mode='bilinear', align_corners=True) * 1/small_ratio
       disp_small_up = disp_small_up.clip(0, None)
@@ -275,7 +279,12 @@ class FoundationStereo(nn.Module, huggingface_hub.PyTorchModelHubMixin):
       image1, image2, disp_small_up = padder.pad(image1, image2, disp_small_up)
       disp_small_up += padder._pad[0]
       init_disp = F.interpolate(disp_small_up, scale_factor=0.25, mode='bilinear', align_corners=True) * 0.25   # Init disp will be 1/4
-      disp = self.forward(image1, image2, iters=iters, test_mode=test_mode, low_memory=low_memory, init_disp=init_disp)
-      disp = padder.unpad(disp.float())
+      out = self.forward(image1, image2, iters=iters, test_mode=test_mode, low_memory=low_memory, init_disp=init_disp)
+      if test_mode and isinstance(out, tuple):
+        disp, conf = out
+        disp = padder.unpad(disp.float())
+        conf = padder.unpad(conf.float())
+        return disp, conf
+      disp = padder.unpad(out.float())
       return disp
 
