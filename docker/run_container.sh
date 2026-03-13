@@ -1,4 +1,4 @@
-docker rm -f foundation_stereo
+# docker rm -f foundation_stereo
 DIR=$(pwd)/../
 xhost +local:docker
 docker run --gpus all \
@@ -17,3 +17,6 @@ docker run --gpus all \
     -e DISPLAY=${DISPLAY} \
     -e GIT_INDEX_FILE foundation_stereo:latest bash \
     -c "cd $DIR && bash"
+
+# docker start foundation_stereo
+# docker exec -it foundation_stereo bash

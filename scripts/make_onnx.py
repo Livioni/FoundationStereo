@@ -12,18 +12,22 @@ class FoundationStereoOnnx(FoundationStereo):
 
     @torch.no_grad()
     def forward(self, left, right):
-        """ Removes extra outputs and hyper-parameters """
+        """Export disparity and confidence outputs for ONNX/TRT."""
         with torch.amp.autocast('cuda', enabled=True):
             out = FoundationStereo.forward(self, left, right, iters=self.args.valid_iters, test_mode=True)
-            disp = out[0] if isinstance(out, tuple) else out
-        return disp
+            if isinstance(out, tuple):
+                disp, conf = out
+            else:
+                disp = out
+                conf = torch.ones_like(disp)
+        return disp, conf
 
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--save_path', type=str, default=f'{code_dir}/../output/foundation_stereo.onnx', help='Path to save results.')
-    parser.add_argument('--ckpt_dir', default=f'{code_dir}/../pretrained_models/23-51-11/model_best_bp2.pth', type=str, help='pretrained model path')
+    parser.add_argument('--ckpt_dir', default=f'{code_dir}/../pretrained_models/23-51-11/model_best_bp2-001.pth', type=str, help='pretrained model path')
     parser.add_argument('--height', type=int, default=448)
     parser.add_argument('--width', type=int, default=672)
     parser.add_argument('--valid_iters', type=int, default=16, help='number of flow-field updates during forward pass')
@@ -42,7 +46,7 @@ if __name__ == '__main__':
     logging.info(f"args:\n{args}")
     logging.info(f"Using pretrained model from {ckpt_dir}")
     model = FoundationStereoOnnx(cfg)
-    ckpt = torch.load(ckpt_dir)
+    ckpt = torch.load(ckpt_dir, weights_only=False)
     logging.info(f"ckpt global_step:{ckpt['global_step']}, epoch:{ckpt['epoch']}")
     model.load_state_dict(ckpt['model'])
     model.cuda()
@@ -58,11 +62,12 @@ if __name__ == '__main__':
         args.save_path,
         opset_version=16,
         input_names = ['left', 'right'],
-        output_names = ['disp'],
+        output_names = ['disp', 'conf'],
         dynamic_axes={
             'left': {0 : 'batch_size'},
             'right': {0 : 'batch_size'},
-            'disp': {0 : 'batch_size'}
+            'disp': {0 : 'batch_size'},
+            'conf': {0 : 'batch_size'}
         },
     )
 

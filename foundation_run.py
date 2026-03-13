@@ -482,22 +482,40 @@ def process_video_folder(video_folder, args, model):
 
     logging.info(f"处理视频文件夹: {video_folder}")
 
-    # 并行提取视频帧
-    logging.info("并行提取左右眼视频帧...")
+    image_pattern = f"*.{args.image_extension}"
+    left_has_images = images_left_dir.exists() and any(
+        images_left_dir.glob(image_pattern)
+    )
+    right_has_images = images_right_dir.exists() and any(
+        images_right_dir.glob(image_pattern)
+    )
+    left_frame_count = right_frame_count = 0
 
-    # with ThreadPoolExecutor(max_workers=2) as executor:
-    #     # 提交两个任务
-    #     future_left = executor.submit(extract_video_frames, str(left_video), str(images_left_dir))
-    #     future_right = executor.submit(extract_video_frames, str(right_video), str(images_right_dir))
+    if left_has_images and right_has_images:
+        left_frame_count = sum(1 for _ in images_left_dir.glob(image_pattern))
+        right_frame_count = sum(1 for _ in images_right_dir.glob(image_pattern))
+        logging.info(
+            "检测到已有左右眼图像，跳过视频帧提取（%d vs %d）",
+            left_frame_count,
+            right_frame_count,
+        )
+    else:
+        logging.info("并行提取左右眼视频帧...")
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            future_left = executor.submit(
+                extract_video_frames, str(left_video), str(images_left_dir)
+            )
+            future_right = executor.submit(
+                extract_video_frames, str(right_video), str(images_right_dir)
+            )
+            left_frame_count = future_left.result()
+            right_frame_count = future_right.result()
+        logging.info("左右眼视频帧提取完成")
 
-    #     # 等待任务完成并获取结果
-    #     left_frame_count = future_left.result()
-    #     right_frame_count = future_right.result()
-
-    # logging.info("左右眼视频帧提取完成")
-
-    # if left_frame_count != right_frame_count:
-    #     logging.warning(f"左右视频帧数不匹配: 左={left_frame_count}, 右={right_frame_count}")
+    if left_frame_count != right_frame_count:
+        logging.warning(
+            f"左右视频帧数不匹配: 左={left_frame_count}, 右={right_frame_count}"
+        )
 
     # 读取内参和baseline
     if args.fx is not None and args.fy is not None and args.cx is not None and args.cy is not None and args.baseline is not None:
@@ -532,6 +550,8 @@ def process_video_folder(video_folder, args, model):
     if args.save_visualization:
         visualization_dir = video_folder / "visualization"
         visualization_dir.mkdir(parents=True, exist_ok=True)
+    conf_mask_dir = video_folder / "conf_mask"
+    conf_mask_dir.mkdir(parents=True, exist_ok=True)
 
     fx = intrinsic_matrix[0, 0] * args.scale
 
@@ -561,10 +581,6 @@ def process_video_folder(video_folder, args, model):
                 )
 
             disp, conf = infer_disparity(model, args, img0, img1)
-            if args.conf_threshold is not None and conf is not None:
-                # 置信度阈值过滤: 低置信度像素视差置0
-                conf_mask = conf >= args.conf_threshold
-                disp[~conf_mask] = 0.0
             if args.remove_invisible:
                 yy, xx = np.meshgrid(
                     np.arange(disp.shape[0]), np.arange(disp.shape[1]), indexing="ij"
@@ -579,11 +595,20 @@ def process_video_folder(video_folder, args, model):
 
             # 保存为 .npy 格式
             base_name = os.path.splitext(filename)[0]
-            depth_path = depth_dir / f"{base_name}.npy"
-            np.save(str(depth_path), depth)
+            # depth_path = depth_dir / f"{base_name}.npy"
+            # np.save(str(depth_path), depth)
+            depth_mm = np.clip(np.round(depth * 1000.0), 0, 65535).astype(np.uint16)
+            depth_mm_path = depth_dir / f"{base_name}.png"
+            cv2.imwrite(str(depth_mm_path), depth_mm)
             if args.save_visualization:
                 vis_path = visualization_dir / f"{base_name}.png"
                 save_depth_visualization(depth, str(vis_path))
+            if conf is not None:
+                conf_uint16 = np.clip(np.round(conf * 65535.0), 0, 65535).astype(
+                    np.uint16
+                )
+                conf_mask_path = conf_mask_dir / f"{base_name}.png"
+                cv2.imwrite(str(conf_mask_path), conf_uint16)
 
         except Exception as exc:
             logging.exception(f"处理帧 {filename} (frame {frame_idx}) 出错: {str(exc)}")

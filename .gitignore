@@ -5,3 +5,5 @@ weight/
 __pycache__
 DATA/*
 /datasets
+.hfd
+hfd.sh
